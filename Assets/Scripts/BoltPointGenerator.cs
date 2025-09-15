@@ -243,11 +243,12 @@ public class BoltPointGenerator : MonoBehaviour
             {
                 mc = mi.Game.AddComponent<MeshCollider>();
                 mc.sharedMesh = mi.MeshFilter.sharedMesh;
-                mc.convex = true;
+                mc.convex = false;
                 mi.TempAddedCollider = true;
             }
         }
     }
+
     private void BuildGraphJson()
     {
         var graph = new GraphData();
@@ -563,18 +564,17 @@ public class BoltPointGenerator : MonoBehaviour
             {
                 for (int k = 0; k < facePositions[fi].Count; k++)
                 {
-                    var pos = facePositions[fi][k];
-                    var normal = faceNormals[fi][k];
-                    var blockedBy = faceBlocked[fi][k];
+                    Vector3 pos = facePositions[fi][k];
+                    Vector3 normal = faceNormals[fi][k];
 
-                    // === новая часть: проецируем на поверхность ===
-                    ProjectOnMeshSurface(ref pos, ref normal);
+                    // --- новый шаг: проекция на меш ---
+                    ProjectToMeshSurface(ref pos, ref normal);
 
                     BoltPoints.Add(new BoltPoint
                     {
                         position = pos,
                         normal = normal,
-                        blockedBy = blockedBy
+                        blockedBy = faceBlocked[fi][k]
                     });
                 }
             }
@@ -585,45 +585,54 @@ public class BoltPointGenerator : MonoBehaviour
         /// <summary>
         /// Проецирует точку на поверхность меша и обновляет нормаль
         /// </summary>
-        private void ProjectOnMeshSurface(ref Vector3 position, ref Vector3 normal)
+        /// <summary>
+        /// Проецирует точку на поверхность меша и обновляет нормаль,
+        /// используя луч через центр Bounds до противоположного края.
+        /// </summary>
+        /// <summary>
+        /// Проецирует точку на поверхность меша и обновляет нормаль,
+        /// строя луч через центр Bounds до противоположного края.
+        /// </summary>
+        private void ProjectToMeshSurface(ref Vector3 pos, ref Vector3 normal)
         {
-            Debug.Log($"{1}");
-            var go = Game;
-            bool tempAdded = false;
+            MeshCollider tempCollider = MeshFilter.GetComponent<MeshCollider>();
+            bool created = false;
 
-            MeshCollider mc = go.GetComponent<MeshCollider>();
-            if (mc == null)
+            if (tempCollider == null)
             {
-                mc = go.AddComponent<MeshCollider>();
-                mc.sharedMesh = MeshFilter.sharedMesh;
-                mc.convex = true;
-                tempAdded = true;
+                tempCollider = MeshFilter.gameObject.AddComponent<MeshCollider>();
+                created = true;
             }
 
-            // Находим ближайшую точку на поверхности
-            Vector3 closest = mc.ClosestPoint(position);
+            // Убедимся, что он не convex (иначе пересечения могут быть странные)
+            tempCollider.convex = false;
 
-            // Смещаем позицию
-            position = closest;
+            Bounds localBounds = MeshFilter.sharedMesh.bounds;
+            Vector3 worldCenter = MeshFilter.transform.TransformPoint(localBounds.center);
 
-            // Получаем нормаль с поверхности через Raycast
-            Vector3 dir = (closest - MeshFilter.transform.position).normalized;
-            Ray ray = new Ray(closest + dir * 0.01f, -dir); // стреляем внутрь
-            if (mc.Raycast(ray, out RaycastHit hit, 0.1f))
+            // Направление через центр в "противоположную сторону"
+            Vector3 toCenter = (worldCenter - pos).normalized;
+            Vector3 throughCenter = -toCenter;
+
+            // Чтобы не стартовать изнутри меша — немного вынесем точку наружу
+            Vector3 rayStart = pos + throughCenter * localBounds.size.magnitude;
+
+            // Строим луч от внешней точки через pos → через центр → наружу
+            Ray ray = new Ray(rayStart, toCenter); // идем в сторону центра и дальше
+            float rayLength = localBounds.size.magnitude * 3f;
+
+            if (tempCollider.Raycast(ray, out RaycastHit hit, rayLength))
             {
+                pos = hit.point;
                 normal = hit.normal;
             }
 
-            // Удаляем MeshCollider если создавали временно
-            if (tempAdded)
-            {
-#if UNITY_EDITOR
-                UnityEngine.Object.DestroyImmediate(mc);
-#else
-        UnityEngine.Object.Destroy(mc);
-#endif
-            }
+            if (created)
+                DestroyImmediate(tempCollider);
         }
+
+
+
 
         /// <summary>
         /// Попытка добавить точку: возвращает true если точка подходит.
