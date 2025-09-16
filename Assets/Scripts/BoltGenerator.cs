@@ -1,4 +1,4 @@
-using System;
+п»їusing System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -35,21 +35,21 @@ public class BasketsWrapper
 public class BoltGenerator : MonoBehaviour
 {
     [Header("JSON Input")]
-    [Tooltip("Можно указать JSON TextAsset (предпочтительно)")]
+    [Tooltip("РњРѕР¶РЅРѕ СѓРєР°Р·Р°С‚СЊ JSON TextAsset (РїСЂРµРґРїРѕС‡С‚РёС‚РµР»СЊРЅРѕ)")]
     public TextAsset pointsJsonAsset;
 
     [TextArea(4, 10)]
-    [Tooltip("Или вставьте JSON сюда (будет использован, если TextAsset пуст)")]
+    [Tooltip("РР»Рё РІСЃС‚Р°РІСЊС‚Рµ JSON СЃСЋРґР° (Р±СѓРґРµС‚ РёСЃРїРѕР»СЊР·РѕРІР°РЅ, РµСЃР»Рё TextAsset РїСѓСЃС‚)")]
     public string pointsJsonText;
 
     [Header("Generator Settings")]
-    [Tooltip("Количество болтиков (должно быть кратно 3)")]
+    [Tooltip("РљРѕР»РёС‡РµСЃС‚РІРѕ Р±РѕР»С‚РёРєРѕРІ (РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РєСЂР°С‚РЅРѕ 3)")]
     public int totalBolts = 12;
 
-    [Tooltip("Количество цветов (по умолчанию 6). Будет автоматически уменьшено до количества корзинок, если больше.")]
+    [Tooltip("РљРѕР»РёС‡РµСЃС‚РІРѕ С†РІРµС‚РѕРІ (РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ 6). Р‘СѓРґРµС‚ Р°РІС‚РѕРјР°С‚РёС‡РµСЃРєРё СѓРјРµРЅСЊС€РµРЅРѕ РґРѕ РєРѕР»РёС‡РµСЃС‚РІР° РєРѕСЂР·РёРЅРѕРє, РµСЃР»Рё Р±РѕР»СЊС€Рµ.")]
     public int totalColors = 6;
 
-    [Tooltip("Опционально: фиксировать seed для воспроизводимости")]
+    [Tooltip("РћРїС†РёРѕРЅР°Р»СЊРЅРѕ: С„РёРєСЃРёСЂРѕРІР°С‚СЊ seed РґР»СЏ РІРѕСЃРїСЂРѕРёР·РІРѕРґРёРјРѕСЃС‚Рё")]
     public bool useSeed = false;
     public int randomSeed = 12345;
 
@@ -57,14 +57,14 @@ public class BoltGenerator : MonoBehaviour
     public GameObject boltPrefab;
     public Transform boltsParent;
 
-    [Tooltip("Родительский объект, содержащий все точки для болтов (Transform)")]
+    [Tooltip("Р РѕРґРёС‚РµР»СЊСЃРєРёР№ РѕР±СЉРµРєС‚, СЃРѕРґРµСЂР¶Р°С‰РёР№ РІСЃРµ С‚РѕС‡РєРё РґР»СЏ Р±РѕР»С‚РѕРІ (Transform)")]
     public Transform boltPointsParent;
 
-    [Tooltip("Родительский объект, содержащий все меши (MeshRenderer)")]
+    [Tooltip("Р РѕРґРёС‚РµР»СЊСЃРєРёР№ РѕР±СЉРµРєС‚, СЃРѕРґРµСЂР¶Р°С‰РёР№ РІСЃРµ РјРµС€Рё (MeshRenderer)")]
     public Transform meshesParent;
 
     [Header("Color Materials")]
-    [Tooltip("Материалы цветов. Должно быть >= totalColors (или хотя бы >= итогового количества цветов после приведения).")]
+    [Tooltip("РњР°С‚РµСЂРёР°Р»С‹ С†РІРµС‚РѕРІ. Р”РѕР»Р¶РЅРѕ Р±С‹С‚СЊ >= totalColors (РёР»Рё С…РѕС‚СЏ Р±С‹ >= РёС‚РѕРіРѕРІРѕРіРѕ РєРѕР»РёС‡РµСЃС‚РІР° С†РІРµС‚РѕРІ РїРѕСЃР»Рµ РїСЂРёРІРµРґРµРЅРёСЏ).")]
     public List<Material> colorMaterials = new List<Material>();
 
     [HideInInspector]
@@ -81,19 +81,19 @@ public class BoltGenerator : MonoBehaviour
     {
         if (string.IsNullOrEmpty(jsonInput))
         {
-            Debug.LogError("[BoltGenerator] Нет JSON входа (pointsJsonAsset или pointsJsonText).");
+            Debug.LogError("[BoltGenerator] РќРµС‚ JSON РІС…РѕРґР° (pointsJsonAsset РёР»Рё pointsJsonText).");
             return;
         }
 
         if (totalBolts <= 0 || totalBolts % 3 != 0)
         {
-            Debug.LogError("[BoltGenerator] totalBolts должно быть положительным и кратным 3.");
+            Debug.LogError("[BoltGenerator] totalBolts РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РїРѕР»РѕР¶РёС‚РµР»СЊРЅС‹Рј Рё РєСЂР°С‚РЅС‹Рј 3.");
             return;
         }
 
         if (boltPrefab == null)
         {
-            Debug.LogError("[BoltGenerator] boltPrefab не задан.");
+            Debug.LogError("[BoltGenerator] boltPrefab РЅРµ Р·Р°РґР°РЅ.");
             return;
         }
 
@@ -104,17 +104,17 @@ public class BoltGenerator : MonoBehaviour
         }
         catch (Exception e)
         {
-            Debug.LogError("[BoltGenerator] Ошибка парсинга JSON: " + e.Message);
+            Debug.LogError("[BoltGenerator] РћС€РёР±РєР° РїР°СЂСЃРёРЅРіР° JSON: " + e.Message);
             return;
         }
 
         if (root == null || root.points == null || root.points.Length == 0)
         {
-            Debug.LogError("[BoltGenerator] В JSON нет точек (points).");
+            Debug.LogError("[BoltGenerator] Р’ JSON РЅРµС‚ С‚РѕС‡РµРє (points).");
             return;
         }
 
-        // 1) Собираем список Transform точек из родителя
+        // 1) РЎРѕР±РёСЂР°РµРј СЃРїРёСЃРѕРє Transform С‚РѕС‡РµРє РёР· СЂРѕРґРёС‚РµР»СЏ
         var transformByName = new Dictionary<string, Transform>(StringComparer.Ordinal);
         if (boltPointsParent != null)
         {
@@ -127,11 +127,11 @@ public class BoltGenerator : MonoBehaviour
         }
         else
         {
-            Debug.LogError("[BoltGenerator] boltPointsParent не задан.");
+            Debug.LogError("[BoltGenerator] boltPointsParent РЅРµ Р·Р°РґР°РЅ.");
             return;
         }
 
-        // 2) Собираем меши (если нужны для проверки parentMeshId)
+        // 2) РЎРѕР±РёСЂР°РµРј РјРµС€Рё (РµСЃР»Рё РЅСѓР¶РЅС‹ РґР»СЏ РїСЂРѕРІРµСЂРєРё parentMeshId)
         var meshByName = new Dictionary<string, MeshRenderer>(StringComparer.Ordinal);
         if (meshesParent != null)
         {
@@ -143,7 +143,7 @@ public class BoltGenerator : MonoBehaviour
             }
         }
 
-        // 3) Фильтруем usablePoints
+        // 3) Р¤РёР»СЊС‚СЂСѓРµРј usablePoints
         var usablePoints = new List<BoltPointData>();
         foreach (var p in root.points)
         {
@@ -153,7 +153,7 @@ public class BoltGenerator : MonoBehaviour
 
             if (!transformByName.ContainsKey(p.id))
             {
-                Debug.LogWarning($"[BoltGenerator] Нет Transform для точки с id '{p.id}' — точка пропущена.");
+                Debug.LogWarning($"[BoltGenerator] РќРµС‚ Transform РґР»СЏ С‚РѕС‡РєРё СЃ id '{p.id}' вЂ” С‚РѕС‡РєР° РїСЂРѕРїСѓС‰РµРЅР°.");
                 continue;
             }
             usablePoints.Add(p);
@@ -161,23 +161,23 @@ public class BoltGenerator : MonoBehaviour
 
         if (usablePoints.Count < totalBolts)
         {
-            Debug.LogError($"[BoltGenerator] Недоступно точек для размещения болтов: нужно {totalBolts}, есть {usablePoints.Count}");
+            Debug.LogError($"[BoltGenerator] РќРµРґРѕСЃС‚СѓРїРЅРѕ С‚РѕС‡РµРє РґР»СЏ СЂР°Р·РјРµС‰РµРЅРёСЏ Р±РѕР»С‚РѕРІ: РЅСѓР¶РЅРѕ {totalBolts}, РµСЃС‚СЊ {usablePoints.Count}");
             return;
         }
 
-        // 4) Корзины и цвета
+        // 4) РљРѕСЂР·РёРЅС‹ Рё С†РІРµС‚Р°
         int basketCount = totalBolts / 3;
         if (totalColors <= 0) totalColors = 1;
 
         if (totalColors > basketCount)
         {
-            Debug.LogWarning($"[BoltGenerator] totalColors ({totalColors}) больше количества корзин ({basketCount}). Привожу totalColors = basketCount.");
+            Debug.LogWarning($"[BoltGenerator] totalColors ({totalColors}) Р±РѕР»СЊС€Рµ РєРѕР»РёС‡РµСЃС‚РІР° РєРѕСЂР·РёРЅ ({basketCount}). РџСЂРёРІРѕР¶Сѓ totalColors = basketCount.");
             totalColors = basketCount;
         }
 
         if (colorMaterials == null || colorMaterials.Count < totalColors)
         {
-            Debug.LogError($"[BoltGenerator] Недостаточно материалов: нужно {totalColors}, есть {(colorMaterials == null ? 0 : colorMaterials.Count)}.");
+            Debug.LogError($"[BoltGenerator] РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РјР°С‚РµСЂРёР°Р»РѕРІ: РЅСѓР¶РЅРѕ {totalColors}, РµСЃС‚СЊ {(colorMaterials == null ? 0 : colorMaterials.Count)}.");
             return;
         }
 
@@ -205,7 +205,7 @@ public class BoltGenerator : MonoBehaviour
             }
         }
 
-        // 5) Выбор точек
+        // 5) Р’С‹Р±РѕСЂ С‚РѕС‡РµРє
         System.Random rng = useSeed ? new System.Random(randomSeed) : new System.Random();
         var shuffled = new List<BoltPointData>(usablePoints);
         for (int i = shuffled.Count - 1; i > 0; i--)
@@ -215,7 +215,7 @@ public class BoltGenerator : MonoBehaviour
         }
         var chosen = shuffled.GetRange(0, totalBolts);
 
-        // 6) Инстанс болтов
+        // 6) РРЅСЃС‚Р°РЅСЃ Р±РѕР»С‚РѕРІ
         var boltIdLists = new List<List<string>>(basketCount);
         for (int i = 0; i < basketCount; i++) boltIdLists.Add(new List<string>());
 
@@ -238,8 +238,28 @@ public class BoltGenerator : MonoBehaviour
             foreach (var r in rends)
                 r.material = colorMaterials[basket.colorIndex];
 
+            // вњ… Р·Р°РїРёСЃС‹РІР°РµРј РґР°РЅРЅС‹Рµ РІ СЃРєСЂРёРїС‚ Р±РѕР»С‚Р°
+            var bolt = boltGO.GetComponent<Bolt>();
+            if (bolt != null)
+            {
+                bolt.colorIndex = basket.colorIndex;
+                bolt.parentMeshId = point.parentMeshId; // РёР· JSON
+                bolt.pointId = point.id;
+
+                // вњ… СЃРѕРѕР±С‰Р°РµРј GameManager Рѕ РјРµС€Рµ
+                if (!string.IsNullOrEmpty(point.parentMeshId))
+                {
+                    GameObject meshGO = null;
+                    if (meshByName.TryGetValue(point.parentMeshId, out var mr))
+                        meshGO = mr.gameObject;
+
+                    GameManager.Instance.RegisterMesh(point.parentMeshId, meshGO, 1);
+                }
+            }
+
             boltIdLists[currentBasketIndex].Add(point.id);
         }
+
 
         for (int i = 0; i < basketCount; i++)
             baskets[i].boltPointIds = boltIdLists[i].ToArray();

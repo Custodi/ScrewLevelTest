@@ -1,16 +1,20 @@
-using UnityEngine;
+п»їusing UnityEngine;
 
 public class Bolt : MonoBehaviour
 {
-    public int colorIndex;      // Индекс цвета
+    public int colorIndex;
+    public string parentMeshId;
+    public string pointId;
+    public bool isPlaced = false;
+
     private bool isCollected = false;
 
-    private void OnMouseDown()
+    // вљЎ РўРµРїРµСЂСЊ Р±РѕР»С‚ РЅРµ СЃР°Рј Р»РѕРІРёС‚ РєР»РёРє, Р° РѕР±СЂР°Р±Р°С‚С‹РІР°РµС‚СЃСЏ С‡РµСЂРµР· GameManager
+    public void OnClicked()
     {
-        if (isCollected) return;
+        if (isCollected || isPlaced) return;
         isCollected = true;
 
-        // Отправляем себя в GameManager
-        GameManager.Instance.OnBoltClicked(this);
+        GameManager.Instance.OnBoltDetachedFromMesh(this);
     }
 }
