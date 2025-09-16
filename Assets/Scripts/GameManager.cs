@@ -321,4 +321,19 @@ public class GameManager : MonoBehaviour
         if (meshBoltCount.Count > 0)
             Debug.Log($"[GameManager] Автоинициализация meshBoltCount: найдено {meshBoltCount.Count} меш(ов) с болтами.");
     }
+
+    /// <summary>
+    /// Проверяет, существует ли ещё меш с данным meshId (не удалён ли он).
+    /// </summary>
+    public bool IsMeshStillExists(string meshId)
+    {
+        if (string.IsNullOrEmpty(meshId)) return false;
+
+        if (meshObjects.TryGetValue(meshId, out var go))
+        {
+            return go != null; // если null → меш удалён
+        }
+
+        return false; // такого меша в словаре уже нет
+    }
 }

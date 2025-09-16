@@ -53,6 +53,7 @@ public class BoltPointGenerator : MonoBehaviour
     [Serializable]
     public class PointData
     {
+        public GameObject gameObject;
         public string id;            // название точки (например, BoltPoint_0)
         public int depth;            // глубина
         public string parentMeshId;  // имя меша, к которому принадлежит
@@ -166,6 +167,7 @@ public class BoltPointGenerator : MonoBehaviour
                 // формируем PointData
                 var pd = new PointData
                 {
+                    gameObject = go,
                     id = pointId,
                     depth = mi.Depth,
                     parentMeshId = mi.Game.name,
@@ -176,6 +178,23 @@ public class BoltPointGenerator : MonoBehaviour
                 created++;
             }
         }
+
+        // Очищаем массив от парных блокирующих точек
+        var newList = PointsData.SelectMany(_ => PointsData,(x,y) => new { x,y}).Where(p => p.x.parentMeshId == p.y.blockedByMeshId && p.y.parentMeshId == p.x.blockedByMeshId).ToList();
+        for (int i = newList.Count - 1; i >= 0; i--)
+        {
+            var item = newList[i].x;
+
+            PointsData.Remove(item);
+            DestroyImmediate(item.gameObject);
+
+
+            var item2 = newList[i].y;
+
+            PointsData.Remove(item2);
+            DestroyImmediate(item2.gameObject);
+        }
+
 
         BuildGraphJson();
 
@@ -634,6 +653,22 @@ public class BoltPointGenerator : MonoBehaviour
                 DestroyImmediate(tempCollider);
         }
 
+        class A
+        {
+            public A(Collider a, float b, Vector3 c, Vector3 d)
+            {
+                collider = a;
+                distance = b;
+                point = c;
+                normal = d;
+            }
+
+            public Collider collider;
+            public float distance;
+            public Vector3 point;
+            public Vector3 normal;
+        }
+
         /// <summary>
         /// Попытка добавить точку: возвращает true если точка подходит.
         /// Точка НЕ подходит если луч по нормали попадает в меш другого MeshInfo с Depth >= this.Depth.
@@ -652,14 +687,22 @@ public class BoltPointGenerator : MonoBehaviour
             if (_debugRays.Count > MAX_DEBUG_RAYS)
                 _debugRays.RemoveAt(0);
 
-            Debug.Log($"{origin} || {normalWorld}");
-            var hits = Physics.RaycastAll(r, Mathf.Infinity);
-            if (hits == null || hits.Length == 0) return true;
+            //Debug.Log($"{origin} || {normalWorld}");
+            var hits = Physics.RaycastAll(r, Mathf.Infinity).Select(hits => new A(hits.collider, hits.distance, hits.point, hits.normal)).ToList();
 
-            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+            Collider[] overlapped = Physics.OverlapSphere(origin, 0.002f); // очень маленький радиус
+
+            hits.AddRange(overlapped.Select(overlapped => new A(overlapped, 0f, origin, -normalWorld)));
+
+            if (hits == null || hits.Count == 0) return true;
+
+            //System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
             foreach (var hit in hits)
             {
+                Debug.Log($"{hit.collider.gameObject.name}");
+
                 if (hit.collider == null) continue;
 
                 // попробуем найти MeshInfo, которому принадлежит этот коллайдер
@@ -673,7 +716,7 @@ public class BoltPointGenerator : MonoBehaviour
                     if (hit.collider.transform.IsChildOf(m.Game.transform)) { hitMi = m; break; }
                 }
 
-               
+
 
                 if (hitMi == null)
                 {
@@ -687,7 +730,7 @@ public class BoltPointGenerator : MonoBehaviour
                 Debug.Log($"{this.Game.name} his {hitMi.Game.name}");
 
                 // первый встретившийся чужой меш — решающий
-                if (hitMi.Depth >= this.Depth)
+                if (hitMi.Depth > this.Depth)
                 {
                     Debug.Log($"{this.Game.name} his {hitMi.Game.name}");
 
@@ -736,6 +779,9 @@ public class BoltPointGenerator : MonoBehaviour
         foreach (var ray in _debugRays)
         {
             Gizmos.DrawRay(ray.origin, ray.direction * 100f);
+            Gizmos.DrawWireSphere(ray.origin, 0.002f);
         }
+
+       
     }
 }

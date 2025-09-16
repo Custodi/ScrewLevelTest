@@ -34,6 +34,8 @@ public class BasketsWrapper
 
 public class BoltGenerator : MonoBehaviour
 {
+    public GameManager gameManager;
+
     [Header("JSON Input")]
     [Tooltip("Можно указать JSON TextAsset (предпочтительно)")]
     public TextAsset pointsJsonAsset;
@@ -253,7 +255,10 @@ public class BoltGenerator : MonoBehaviour
                     if (meshByName.TryGetValue(point.parentMeshId, out var mr))
                         meshGO = mr.gameObject;
 
-                    GameManager.Instance.RegisterMesh(point.parentMeshId, meshGO, 1);
+                    Debug.Log($"{point}");
+                    Debug.Log($"{point.parentMeshId}");
+                    Debug.Log($"{meshGO}");
+                    gameManager.RegisterMesh(point.parentMeshId, meshGO, 1);
                 }
             }
 
