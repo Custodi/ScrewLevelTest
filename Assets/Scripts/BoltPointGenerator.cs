@@ -87,6 +87,9 @@ public class BoltPointGenerator : MonoBehaviour
     [TextArea(5, 20)]
     public string PointDataJson;
 
+    public static List<Ray> _debugRays = new List<Ray>();
+    private const int MAX_DEBUG_RAYS = 50; // Максимальное количество сохраняемых лучей
+
     [ContextMenu("Generate")]
     public void Generate()
     {
@@ -631,9 +634,6 @@ public class BoltPointGenerator : MonoBehaviour
                 DestroyImmediate(tempCollider);
         }
 
-
-
-
         /// <summary>
         /// Попытка добавить точку: возвращает true если точка подходит.
         /// Точка НЕ подходит если луч по нормали попадает в меш другого MeshInfo с Depth >= this.Depth.
@@ -642,11 +642,17 @@ public class BoltPointGenerator : MonoBehaviour
         private bool TryAddPoint(Vector3 posWorld, Vector3 normalWorld, BoltPointGenerator parent, out string blockedBy)
         {
             blockedBy = null;
-
-            // сдвинем начало луча чуть внутрь (чтобы корректно различать соседние плоскости)
-            Vector3 origin = posWorld - normalWorld * 0.01f;
+            Vector3 origin = posWorld - normalWorld * 0.001f;
             Ray r = new Ray(origin, normalWorld);
 
+            // Добавляем луч в список для отрисовки
+            _debugRays.Add(r);
+
+            // Ограничиваем размер списка
+            if (_debugRays.Count > MAX_DEBUG_RAYS)
+                _debugRays.RemoveAt(0);
+
+            Debug.Log($"{origin} || {normalWorld}");
             var hits = Physics.RaycastAll(r, Mathf.Infinity);
             if (hits == null || hits.Length == 0) return true;
 
@@ -667,6 +673,8 @@ public class BoltPointGenerator : MonoBehaviour
                     if (hit.collider.transform.IsChildOf(m.Game.transform)) { hitMi = m; break; }
                 }
 
+               
+
                 if (hitMi == null)
                 {
                     // попали в объект вне нашего списка — считаем безопасным и продолжаем проверять дальше
@@ -676,9 +684,13 @@ public class BoltPointGenerator : MonoBehaviour
                 // если попали в свой меш — пропускаем его (искать следующий чужой хит)
                 if (hitMi == this) continue;
 
+                Debug.Log($"{this.Game.name} his {hitMi.Game.name}");
+
                 // первый встретившийся чужой меш — решающий
                 if (hitMi.Depth >= this.Depth)
                 {
+                    Debug.Log($"{this.Game.name} his {hitMi.Game.name}");
+
                     // блокирующий меш (глубина >= текущей) — точка не годится
                     return false;
                 }
@@ -704,7 +716,6 @@ public class BoltPointGenerator : MonoBehaviour
 
         // ВНИМАНИЕ: этот метод должен быть на уровне BoltPointGenerator, а не внутри MeshInfo
 
-
     } // MeshInfo
 
     public class BoltPoint
@@ -712,5 +723,19 @@ public class BoltPointGenerator : MonoBehaviour
         public Vector3 position;
         public Vector3 normal;
         public string blockedBy; // имя меша, если точка была отвергнута или блокирована
+    }
+
+    private void OnDrawGizmos()
+    {
+        // Проверяем, активен ли объект и есть ли данные для отрисовки
+        if (!isActiveAndEnabled || _debugRays.Count == 0) return;
+
+        Gizmos.color = Color.red;
+
+        // Отрисовываем все сохраненные лучи
+        foreach (var ray in _debugRays)
+        {
+            Gizmos.DrawRay(ray.origin, ray.direction * 100f);
+        }
     }
 }
