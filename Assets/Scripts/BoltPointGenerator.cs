@@ -53,7 +53,6 @@ public class BoltPointGenerator : MonoBehaviour
     [Serializable]
     public class PointData
     {
-        public GameObject gameObject;
         public string id;            // название точки (например, BoltPoint_0)
         public int depth;            // глубина
         public string parentMeshId;  // имя меша, к которому принадлежит
@@ -167,7 +166,6 @@ public class BoltPointGenerator : MonoBehaviour
                 // формируем PointData
                 var pd = new PointData
                 {
-                    gameObject = go,
                     id = pointId,
                     depth = mi.Depth,
                     parentMeshId = mi.Game.name,
@@ -178,23 +176,6 @@ public class BoltPointGenerator : MonoBehaviour
                 created++;
             }
         }
-
-        // Очищаем массив от парных блокирующих точек
-        var newList = PointsData.SelectMany(_ => PointsData,(x,y) => new { x,y}).Where(p => p.x.parentMeshId == p.y.blockedByMeshId && p.y.parentMeshId == p.x.blockedByMeshId).ToList();
-        for (int i = newList.Count - 1; i >= 0; i--)
-        {
-            var item = newList[i].x;
-
-            PointsData.Remove(item);
-            DestroyImmediate(item.gameObject);
-
-
-            var item2 = newList[i].y;
-
-            PointsData.Remove(item2);
-            DestroyImmediate(item2.gameObject);
-        }
-
 
         BuildGraphJson();
 
@@ -392,6 +373,13 @@ public class BoltPointGenerator : MonoBehaviour
         private Vector3[] vertices;
         private int[] triangles;
 
+        // внутри MeshInfo (дополнить поля)
+private float[] triAreas;
+private Vector3[] triCentersLocal;
+private Vector3[] triNormalsLocal;
+private int triCount;
+
+
         public MeshInfo(GameObject go, MeshFilter mf)
         {
             Game = go;
@@ -424,7 +412,6 @@ public class BoltPointGenerator : MonoBehaviour
         /// </summary>
         public bool GenerateBoltPointsByBounds(BoltPointGenerator parent, BoltPointGenerator.DistributionMode mode)
         {
-            // очистим старые точки
             BoltPoints.Clear();
             Mesh mesh = MeshFilter.sharedMesh;
             if (mesh == null) return false;
@@ -446,22 +433,7 @@ public class BoltPointGenerator : MonoBehaviour
             var faceOrder = faces.Select((f, i) => (i, f)).OrderByDescending(x => x.f.area).Select(x => x.i).ToArray();
             int facesCount = faces.Count;
 
-            int[] placedPerFace = new int[facesCount];
-            List<Vector3>[] facePositions = new List<Vector3>[facesCount];
-            List<Vector3>[] faceNormals = new List<Vector3>[facesCount];
-            List<string>[] faceBlocked = new List<string>[facesCount];
-
-            for (int i = 0; i < facesCount; i++)
-            {
-                facePositions[i] = new List<Vector3>();
-                faceNormals[i] = new List<Vector3>();
-                faceBlocked[i] = new List<string>();
-            }
-
-            int needed = Mathf.Max(0, TargetSampleCount);
-            if (needed == 0) return true;
-
-            // функция для генерации раскладки локальных позиций на грани
+            // локальная функция генерации сетки для грани
             System.Func<FaceInfo, int, List<Vector3>> GenLocalLayout = (face, count) =>
             {
                 var res = new List<Vector3>();
@@ -526,83 +498,118 @@ public class BoltPointGenerator : MonoBehaviour
                 }
             };
 
-            // основной цикл по раундам
-            while (needed > 0)
+            // попробуем максимум 2 раза: первая попытка + полная перегенерация
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                bool placedThisCycle = false;
+                int needed = Mathf.Max(0, TargetSampleCount);
+                if (needed == 0) return true;
 
-                foreach (int fi in faceOrder)
+                int[] placedPerFace = new int[facesCount];
+                List<Vector3>[] facePositions = new List<Vector3>[facesCount];
+                List<Vector3>[] faceNormals = new List<Vector3>[facesCount];
+                List<string>[] faceBlocked = new List<string>[facesCount];
+
+                for (int i = 0; i < facesCount; i++)
                 {
-                    var f = faces[fi];
-                    int current = placedPerFace[fi];
-                    int propose = current + 1;
-
-                    var localCandidates = GenLocalLayout(f, propose);
-                    if (localCandidates == null || localCandidates.Count < propose) continue;
-
-                    var worldCandidates = new List<Vector3>(propose);
-                    var worldNormals = new List<Vector3>(propose);
-                    var blockedByList = new List<string>(propose);
-
-                    Vector3 worldNormal = MeshFilter.transform.TransformDirection(f.localNormal).normalized;
-
-                    for (int i = 0; i < localCandidates.Count; i++)
-                    {
-                        Vector3 w = MeshFilter.transform.TransformPoint(localCandidates[i]);
-                        worldCandidates.Add(w);
-                        worldNormals.Add(worldNormal);
-
-                        TryAddPoint(w, worldNormal, parent, out var blockedByCandidate);
-                        blockedByList.Add(blockedByCandidate);
-                    }
-
-                    // принимаем новую конфигурацию (даже если часть точек заблокирована)
-                    placedPerFace[fi] = propose;
-                    facePositions[fi].Clear();
-                    faceNormals[fi].Clear();
-                    faceBlocked[fi].Clear();
-
-                    for (int i = 0; i < worldCandidates.Count; i++)
-                    {
-                        facePositions[fi].Add(worldCandidates[i]);
-                        faceNormals[fi].Add(worldNormals[i]);
-                        faceBlocked[fi].Add(blockedByList[i]);
-                    }
-
-                    needed--;
-                    placedThisCycle = true;
-                    if (needed <= 0) break;
+                    facePositions[i] = new List<Vector3>();
+                    faceNormals[i] = new List<Vector3>();
+                    faceBlocked[i] = new List<string>();
                 }
 
-                if (!placedThisCycle)
+                bool failed = false;
+
+                while (needed > 0)
                 {
-                    Debug.LogError($"[BoltPointGenerator] Не удалось разместить оставшиеся {needed} точек на меш '{Game.name}' — все кандидаты отклонены правилами глубин.");
-                    return false;
+                    bool placedThisCycle = false;
+
+                    foreach (int fi in faceOrder)
+                    {
+                        var f = faces[fi];
+                        int current = placedPerFace[fi];
+                        int propose = current + 1;
+
+                        var localCandidates = GenLocalLayout(f, propose);
+                        if (localCandidates == null || localCandidates.Count < propose)
+                        {
+                            failed = true;
+                            break;
+                        }
+
+                        var worldCandidates = new List<Vector3>(propose);
+                        var worldNormals = new List<Vector3>(propose);
+                        var blockedByList = new List<string>(propose);
+
+                        Vector3 worldNormal = MeshFilter.transform.TransformDirection(f.localNormal).normalized;
+
+                        for (int i = 0; i < localCandidates.Count; i++)
+                        {
+                            Vector3 w = MeshFilter.transform.TransformPoint(localCandidates[i]);
+                            worldCandidates.Add(w);
+                            worldNormals.Add(worldNormal);
+
+                            TryAddPoint(w, worldNormal, parent, out var blockedByCandidate);
+                            blockedByList.Add(blockedByCandidate);
+                        }
+
+                        placedPerFace[fi] = propose;
+                        facePositions[fi].Clear();
+                        faceNormals[fi].Clear();
+                        faceBlocked[fi].Clear();
+
+                        for (int i = 0; i < worldCandidates.Count; i++)
+                        {
+                            facePositions[fi].Add(worldCandidates[i]);
+                            faceNormals[fi].Add(worldNormals[i]);
+                            faceBlocked[fi].Add(blockedByList[i]);
+                        }
+
+                        needed--;
+                        placedThisCycle = true;
+                        if (needed <= 0) break;
+                    }
+
+                    if (failed) break;
+
+                    if (!placedThisCycle)
+                    {
+                        failed = true;
+                        break;
+                    }
+                }
+
+                if (!failed)
+                {
+                    // финальная запись точек
+                    BoltPoints.Clear();
+                    for (int fi = 0; fi < facesCount; fi++)
+                    {
+                        for (int k = 0; k < facePositions[fi].Count; k++)
+                        {
+                            Vector3 pos = facePositions[fi][k];
+                            Vector3 normal = faceNormals[fi][k];
+
+                            ProjectToMeshSurface(ref pos, ref normal);
+
+                            BoltPoints.Add(new BoltPoint
+                            {
+                                position = pos,
+                                normal = normal,
+                                blockedBy = faceBlocked[fi][k]
+                            });
+                        }
+                    }
+                    return BoltPoints.Count > 0;
+                }
+                else
+                {
+                    Debug.LogWarning($"[BoltPointGenerator] Попытка {attempt + 1}: генерация точек для '{Game.name}' сброшена, пробуем заново...");
                 }
             }
 
-            BoltPoints.Clear();
-            for (int fi = 0; fi < facesCount; fi++)
-            {
-                for (int k = 0; k < facePositions[fi].Count; k++)
-                {
-                    Vector3 pos = facePositions[fi][k];
-                    Vector3 normal = faceNormals[fi][k];
-
-                    // --- новый шаг: проекция на меш ---
-                    ProjectToMeshSurface(ref pos, ref normal);
-
-                    BoltPoints.Add(new BoltPoint
-                    {
-                        position = pos,
-                        normal = normal,
-                        blockedBy = faceBlocked[fi][k]
-                    });
-                }
-            }
-
-            return BoltPoints.Count > 0;
+            Debug.LogError($"[BoltPointGenerator] Не удалось разместить точки на меш '{Game.name}' даже после полной перегенерации.");
+            return false;
         }
+
 
         /// <summary>
         /// Проецирует точку на поверхность меша и обновляет нормаль
@@ -653,101 +660,105 @@ public class BoltPointGenerator : MonoBehaviour
                 DestroyImmediate(tempCollider);
         }
 
-        class A
-        {
-            public A(Collider a, float b, Vector3 c, Vector3 d)
-            {
-                collider = a;
-                distance = b;
-                point = c;
-                normal = d;
-            }
-
-            public Collider collider;
-            public float distance;
-            public Vector3 point;
-            public Vector3 normal;
-        }
-
         /// <summary>
         /// Попытка добавить точку: возвращает true если точка подходит.
         /// Точка НЕ подходит если луч по нормали попадает в меш другого MeshInfo с Depth >= this.Depth.
         /// В out blockedBy возвращается имя меша, который блокирует точку (или null).
         /// </summary>
+        /// <summary>
+        /// Попытка добавить точку: возвращает true если точка подходит.
+        /// Точка НЕ подходит если луч по нормали попадает в меш другого MeshInfo с Depth > this.Depth.
+        /// Если глубина совпадает — точка остаётся валидной.
+        /// В out blockedBy возвращается имя меша, который блокирует точку (или null).
+        /// </summary>
         private bool TryAddPoint(Vector3 posWorld, Vector3 normalWorld, BoltPointGenerator parent, out string blockedBy)
         {
             blockedBy = null;
+            // небольшое смещение назад, чтобы не задеть собственную поверхность
             Vector3 origin = posWorld - normalWorld * 0.001f;
             Ray r = new Ray(origin, normalWorld);
 
-            // Добавляем луч в список для отрисовки
+            // debug rays (как раньше)
             _debugRays.Add(r);
+            if (_debugRays.Count > MAX_DEBUG_RAYS) _debugRays.RemoveAt(0);
 
-            // Ограничиваем размер списка
-            if (_debugRays.Count > MAX_DEBUG_RAYS)
-                _debugRays.RemoveAt(0);
+            var hits = Physics.RaycastAll(r, Mathf.Infinity);
+            if (hits == null || hits.Length == 0) return true;
 
-            //Debug.Log($"{origin} || {normalWorld}");
-            var hits = Physics.RaycastAll(r, Mathf.Infinity).Select(hits => new A(hits.collider, hits.distance, hits.point, hits.normal)).ToList();
+            System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
-
-            Collider[] overlapped = Physics.OverlapSphere(origin, 0.002f); // очень маленький радиус
-
-            hits.AddRange(overlapped.Select(overlapped => new A(overlapped, 0f, origin, -normalWorld)));
-
-            if (hits == null || hits.Count == 0) return true;
-
-            //System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+            // локальные пороги (берём из parent, если он задан — иначе значения по умолчанию)
+            float sameDepthDot = parent != null ? -0.5f : -0.5f;
+            float minSep = parent != null ? 0.02f : 0.02f;
 
             foreach (var hit in hits)
             {
-                Debug.Log($"{hit.collider.gameObject.name}");
-
                 if (hit.collider == null) continue;
 
-                // попробуем найти MeshInfo, которому принадлежит этот коллайдер
+                // Найти MeshInfo, которому принадлежит хит
                 MeshInfo hitMi = null;
                 foreach (var m in parent.meshes)
                 {
                     if (hit.collider.gameObject == m.Game) { hitMi = m; break; }
                     var mf = hit.collider.GetComponent<MeshFilter>();
                     if (mf != null && mf == m.MeshFilter) { hitMi = m; break; }
-                    // учитывать дочерние коллайдеры
                     if (hit.collider.transform.IsChildOf(m.Game.transform)) { hitMi = m; break; }
                 }
 
-
-
                 if (hitMi == null)
                 {
-                    // попали в объект вне нашего списка — считаем безопасным и продолжаем проверять дальше
+                    // попали во внешний объект — игнорируем
                     continue;
                 }
 
-                // если попали в свой меш — пропускаем его (искать следующий чужой хит)
+                // если попали в свой меш — пропускаем (ищем следующий внешний хит)
                 if (hitMi == this) continue;
 
-                Debug.Log($"{this.Game.name} his {hitMi.Game.name}");
-
-                // первый встретившийся чужой меш — решающий
+                // если глубина больше (hit глубже) => блокируем
                 if (hitMi.Depth > this.Depth)
                 {
-                    Debug.Log($"{this.Game.name} his {hitMi.Game.name}");
-
-                    // блокирующий меш (глубина >= текущей) — точка не годится
+                    blockedBy = hitMi.Game.name;
                     return false;
                 }
-                else
+
+                // если глубина равна — дополнительная логика: блокируем только если поверхности реально "встречные"
+                if (hitMi.Depth == this.Depth)
                 {
-                    // попали в меш с меньшей глубиной — значит точка допустима
-                    blockedBy = hitMi.Game.name;
-                    return true;
+                    Vector3 hitNormal = hit.normal.normalized; // нормаль попадания (world space)
+                    float dot = Vector3.Dot(normalWorld.normalized, hitNormal);
+
+                    // расстояние вдоль луча от origin до попадания
+                    float separation = hit.distance;
+
+                    // если нормали направлены навстречу (dot меньше порога) — блокируем
+                    if (dot < sameDepthDot)
+                    {
+                        blockedBy = hitMi.Game.name;
+                        return false;
+                    }
+
+                    // или если поверхности слишком близко — блокируем
+                    if (separation < minSep)
+                    {
+                        blockedBy = hitMi.Game.name;
+                        return false;
+                    }
+
+                    // иначе — считаем безопасным и продолжаем проверять следующие хиты
+                    continue;
                 }
+
+                // если hitMi.Depth < this.Depth => встретили более "мелкий" меш — точка допустима,
+                // но возвращаем имя блокировщика для информации
+                blockedBy = hitMi.Game.name;
+                return true;
             }
 
-            // если прошли все хиты и не нашли чужого блокирующего меша — допустимо
+            // ни один хит не заблокировал точку
             return true;
         }
+
+
 
         private struct FaceInfo
         {
@@ -779,9 +790,6 @@ public class BoltPointGenerator : MonoBehaviour
         foreach (var ray in _debugRays)
         {
             Gizmos.DrawRay(ray.origin, ray.direction * 100f);
-            Gizmos.DrawWireSphere(ray.origin, 0.002f);
         }
-
-       
     }
 }

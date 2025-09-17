@@ -223,11 +223,12 @@ public class GameManager : MonoBehaviour
             meshBoltCount[bolt.parentMeshId] = 0;
         }
 
+        // уменьшаем счётчик болтов у меша
         meshBoltCount[bolt.parentMeshId]--;
 
+        // если дошло до нуля — удаляем меш-объект (если известен)
         if (meshBoltCount[bolt.parentMeshId] <= 0)
         {
-            // Удаляем меш-объект, если известен
             if (meshObjects.TryGetValue(bolt.parentMeshId, out var meshGO) && meshGO != null)
             {
                 Debug.Log($"[GameManager] Меш {bolt.parentMeshId} разрушен (все болты откручены).");
@@ -238,9 +239,19 @@ public class GameManager : MonoBehaviour
             meshObjects.Remove(bolt.parentMeshId);
         }
 
+        // ------------------------------
+        // ВАЖНО: предотвращаем повторное добавление болта в корзину/буфер,
+        // если он уже был помещён OnBoltClicked'ом.
+        // ------------------------------
+        if (bolt.isPlaced)
+        {
+            // уже размещён — ничего больше не делаем
+            return;
+        }
+
         // После снятия болта — попытка положить его в корзину/буфер (если не сделано ранее)
-        // (Заметим: обычно OnBoltClicked уже попробовал положить; этот код в случае, если мы
-        // вызвали OnBoltDetachedFromMesh отдельно — дублирует логику.)
+        // (Заметим: обычно OnBoltClicked уже попробовал положить; этот код нужен если
+        // OnBoltDetachedFromMesh вызван отдельно в другом месте.)
         Basket target = activeBaskets.Find(b => b.colorIndex == bolt.colorIndex && !b.IsFull);
         if (target != null)
         {
@@ -257,6 +268,7 @@ public class GameManager : MonoBehaviour
             }
         }
     }
+
 
     /// <summary>
     /// Если meshBoltCount ещё не инициализирован, пробуем собрать данные автоматически:

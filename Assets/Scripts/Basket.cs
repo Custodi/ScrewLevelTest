@@ -5,10 +5,18 @@ using UnityEngine;
 public class Basket : MonoBehaviour
 {
     public int colorIndex;
-    public Transform[] slots; // 3 позиции дл€ болтов
+    public Transform[] slots; // 3 позиции дл€ болтов (ожидаетс€)
     private List<Bolt> bolts = new List<Bolt>();
 
-    public bool IsFull => bolts.Count >= slots.Length;
+    // ∆Єстко требуема€ вместимость корзины (по правилам Ч 3 болта)
+    private const int REQUIRED_CAPACITY = 3;
+
+    // ‘актическа€ вместимость Ч минимум между требуемой и конфигурацией слотов:
+    // если префаб имеет больше слотов Ч используем их; если меньше Ч всЄ равно считаем capacity >= REQUIRED_CAPACITY
+    public int Capacity => Mathf.Max(REQUIRED_CAPACITY, (slots != null ? slots.Length : 0));
+
+    // ѕолна€ ли корзина Ч используем Capacity, а не строго slots.Length
+    public bool IsFull => bolts.Count >= Capacity;
 
     public void Init(int colorIndex, Material mat)
     {
@@ -18,20 +26,53 @@ public class Basket : MonoBehaviour
         var rends = GetComponentsInChildren<Renderer>();
         foreach (var r in rends)
         {
-            r.material = mat;
+            if (r != null && mat != null)
+                r.material = mat;
         }
     }
 
     public bool TryAddBolt(Bolt bolt, Action<Basket, Bolt> onPlaced = null)
     {
-        if (IsFull || bolt.colorIndex != colorIndex) return false;
+        if (bolt == null) return false;
+
+        // цвет не подходит
+        if (bolt.colorIndex != colorIndex) return false;
+
+        // уже полна€
+        if (bolts.Count >= Capacity) return false;
 
         bolts.Add(bolt);
 
         int slotIndex = bolts.Count - 1;
-        bolt.transform.SetParent(slots[slotIndex]);
-        bolt.transform.localPosition = Vector3.zero;
-        bolt.transform.localRotation = Quaternion.identity;
+
+        // ≈сли в префабе есть соответствующий слот Ч ставим туда
+        if (slots != null && slotIndex < slots.Length && slots[slotIndex] != null)
+        {
+            bolt.transform.SetParent(slots[slotIndex], false);
+            bolt.transform.localPosition = Vector3.zero;
+            bolt.transform.localRotation = Quaternion.identity;
+        }
+        else
+        {
+            // fallback: если слотов меньше чем нужно, прив€зываем к корзине и ставим в аккуратную fallback-позицию
+            bolt.transform.SetParent(this.transform, false);
+
+            // проста€ аккуратна€ расстановка: 3 позиции в виде небольшого треугольника/строчки
+            float spacing = 0.05f; // можно подправить в префабе
+            Vector3 offset = Vector3.zero;
+            switch (slotIndex)
+            {
+                case 0: offset = Vector3.up * spacing; break;
+                case 1: offset = Vector3.right * spacing; break;
+                default: offset = Vector3.left * spacing * (slotIndex - 1); break;
+            }
+
+            bolt.transform.localPosition = offset;
+            bolt.transform.localRotation = Quaternion.identity;
+
+            Debug.LogWarning($"[Basket] Ќедостаточно слотов в префабе корзины '{name}' (slots.Length = {(slots == null ? 0 : slots.Length)}). Ѕолт будет размещЄн в fallback-позиции.");
+        }
+
         bolt.isPlaced = true;
 
         onPlaced?.Invoke(this, bolt);

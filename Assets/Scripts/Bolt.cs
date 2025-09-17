@@ -7,6 +7,7 @@ public class Bolt : MonoBehaviour
     public string parentMeshId;     // меш, к которому прикручен болт
     public string blockingMeshId;   // меш, блокирующий выкручивание (если есть)
     public int colorIndex;          // цвет болта (для корзины)
+    public int depth;
 
     [Header("State")]
     public bool isPlaced = false;   // установлен ли болт в корзину/буфер
