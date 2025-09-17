@@ -247,6 +247,7 @@ public class BoltGenerator : MonoBehaviour
                 bolt.colorIndex = basket.colorIndex;
                 bolt.parentMeshId = point.parentMeshId; // из JSON
                 bolt.pointId = point.id;
+                //bolt.depth = point.depth;
 
                 // ✅ сообщаем GameManager о меше
                 if (!string.IsNullOrEmpty(point.parentMeshId))

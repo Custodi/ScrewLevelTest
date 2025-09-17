@@ -154,7 +154,7 @@ public class BoltPointGenerator : MonoBehaviour
                 string pointId = $"BoltPoint_{created}";
 
                 GameObject go = new GameObject(pointId);
-                go.transform.SetParent(pointsParent, false);
+                go.transform.SetParent(mi.Game.transform, false);
                 go.transform.position = bp.position;
                 go.transform.rotation = Quaternion.LookRotation(bp.normal);
 
