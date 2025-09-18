@@ -153,7 +153,7 @@ public class BoltPointGenerator : MonoBehaviour
                 string pointId = $"BoltPoint_{created}";
 
                 GameObject go = new GameObject(pointId);
-                go.transform.SetParent(pointsParent, false);
+                go.transform.SetParent(mi.Game.transform, false);
                 go.transform.position = bp.position;
                 go.transform.rotation = Quaternion.LookRotation(bp.normal);
 
@@ -410,6 +410,8 @@ private int triCount;
         /// На каждой попытке точка проверяется TryAddPoint: если луч попадает в меш с Depth >= this.Depth —
         /// точка отвергается и пробуется следующая грань. Если все грани отказали — возвращается false.
         /// </summary>
+
+        // В классе MeshInfo (или в самом методе) заменим старую логику, связную с глубиной:
         public bool GenerateBoltPointsByBounds(BoltPointGenerator parent, BoltPointGenerator.DistributionMode mode)
         {
             BoltPoints.Clear();
@@ -433,72 +435,8 @@ private int triCount;
             var faceOrder = faces.Select((f, i) => (i, f)).OrderByDescending(x => x.f.area).Select(x => x.i).ToArray();
             int facesCount = faces.Count;
 
-            // локальная функция генерации сетки для грани
-            System.Func<FaceInfo, int, List<Vector3>> GenLocalLayout = (face, count) =>
-            {
-                var res = new List<Vector3>();
-                Vector3 lc = face.localCenter;
-                Vector3 ln = face.localNormal;
+            int blockedPoints = 0; // Считаем количество точек, которые не заблокированы другим объектом
 
-                Vector3 axisA = Vector3.Cross(ln, Vector3.up);
-                if (axisA.sqrMagnitude < 1e-4f) axisA = Vector3.Cross(ln, Vector3.right);
-                axisA.Normalize();
-                Vector3 axisB = Vector3.Cross(ln, axisA).normalized;
-
-                float sizeA = Mathf.Abs(Vector3.Dot(localSize, axisA));
-                float sizeB = Mathf.Abs(Vector3.Dot(localSize, axisB));
-
-                bool linearAuto = sizeA > sizeB * 1.5f || sizeB > sizeA * 1.5f;
-                bool useLinear = (mode == BoltPointGenerator.DistributionMode.Linear) ||
-                                 (mode == BoltPointGenerator.DistributionMode.Auto && linearAuto);
-
-                if (count <= 0) return res;
-
-                if (useLinear)
-                {
-                    if (count == 1)
-                    {
-                        res.Add(lc);
-                        return res;
-                    }
-
-                    Vector3 dir = (sizeA >= sizeB) ? axisA : axisB;
-                    float length = Mathf.Max(sizeA, sizeB) * 0.8f;
-                    float step = (count > 1) ? length / (count - 1) : 0f;
-
-                    for (int i = 0; i < count; i++)
-                    {
-                        float offset = -length * 0.5f + step * i;
-                        res.Add(lc + dir * offset);
-                    }
-                    return res;
-                }
-                else
-                {
-                    if (count == 1)
-                    {
-                        res.Add(lc);
-                        return res;
-                    }
-
-                    int ringCount = (count % 2 == 1) ? (count - 1) : count;
-                    float radius = Mathf.Min(sizeA, sizeB) * 0.35f;
-                    float rotation = Mathf.PI / 4f;
-
-                    if (count % 2 == 1)
-                        res.Add(lc);
-
-                    for (int k = 0; k < ringCount; k++)
-                    {
-                        float angle = (2f * Mathf.PI * k) / ringCount + rotation;
-                        Vector3 localPos = lc + axisA * Mathf.Cos(angle) * radius + axisB * Mathf.Sin(angle) * radius;
-                        res.Add(localPos);
-                    }
-                    return res;
-                }
-            };
-
-            // попробуем максимум 2 раза: первая попытка + полная перегенерация
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 int needed = Mathf.Max(0, TargetSampleCount);
@@ -528,7 +466,7 @@ private int triCount;
                         int current = placedPerFace[fi];
                         int propose = current + 1;
 
-                        var localCandidates = GenLocalLayout(f, propose);
+                        var localCandidates = GenerateCandidatesForFace(f, propose, mode);
                         if (localCandidates == null || localCandidates.Count < propose)
                         {
                             failed = true;
@@ -547,8 +485,15 @@ private int triCount;
                             worldCandidates.Add(w);
                             worldNormals.Add(worldNormal);
 
+                            // Здесь добавляется проверка на блокировку
                             TryAddPoint(w, worldNormal, parent, out var blockedByCandidate);
                             blockedByList.Add(blockedByCandidate);
+
+                            // Если точка не блокируется, увеличиваем счётчик
+                            if (string.IsNullOrEmpty(blockedByCandidate))
+                            {
+                                blockedPoints++;
+                            }
                         }
 
                         placedPerFace[fi] = propose;
@@ -565,7 +510,7 @@ private int triCount;
 
                         needed--;
                         placedThisCycle = true;
-                        if (needed <= 0) break;
+                        if (needed <= 0 || blockedPoints >= 20) break; // TODO
                     }
 
                     if (failed) break;
@@ -579,7 +524,6 @@ private int triCount;
 
                 if (!failed)
                 {
-                    // финальная запись точек
                     BoltPoints.Clear();
                     for (int fi = 0; fi < facesCount; fi++)
                     {
@@ -609,6 +553,83 @@ private int triCount;
             Debug.LogError($"[BoltPointGenerator] Не удалось разместить точки на меш '{Game.name}' даже после полной перегенерации.");
             return false;
         }
+
+        // Новая функция для генерации кандидатов на основе данных о гранях.
+        private List<Vector3> GenerateCandidatesForFace(FaceInfo face, int count, BoltPointGenerator.DistributionMode mode)
+        {
+            var res = new List<Vector3>();
+            Vector3 lc = face.localCenter;
+            Vector3 ln = face.localNormal;
+
+            // Получаем размер грани
+            Vector3 localSize = new Vector3(
+                Vector3.Dot(face.localCenter, Vector3.right),
+                Vector3.Dot(face.localCenter, Vector3.up),
+                Vector3.Dot(face.localCenter, Vector3.forward)
+            );
+
+            // Направления для осей
+            Vector3 axisA = Vector3.Cross(ln, Vector3.up);
+            if (axisA.sqrMagnitude < 1e-4f) axisA = Vector3.Cross(ln, Vector3.right);
+            axisA.Normalize();
+            Vector3 axisB = Vector3.Cross(ln, axisA).normalized;
+
+            float sizeA = Mathf.Abs(Vector3.Dot(localSize, axisA));
+            float sizeB = Mathf.Abs(Vector3.Dot(localSize, axisB));
+
+            // Логика для выбора типа распределения точек
+            bool linearAuto = sizeA > sizeB * 1.5f || sizeB > sizeA * 1.5f;
+            bool useLinear = (mode == BoltPointGenerator.DistributionMode.Linear) ||
+                             (mode == BoltPointGenerator.DistributionMode.Auto && linearAuto);
+
+            if (count <= 0) return res;
+
+            // Логика для линейного распределения точек
+            if (useLinear)
+            {
+                if (count == 1)
+                {
+                    res.Add(lc);
+                    return res;
+                }
+
+                Vector3 dir = (sizeA >= sizeB) ? axisA : axisB;
+                float length = Mathf.Max(sizeA, sizeB) * 0.8f;
+                float step = (count > 1) ? length / (count - 1) : 0f;
+
+                for (int i = 0; i < count; i++)
+                {
+                    float offset = -length * 0.5f + step * i;
+                    res.Add(lc + dir * offset);
+                }
+                return res;
+            }
+            else
+            {
+                if (count == 1)
+                {
+                    res.Add(lc);
+                    return res;
+                }
+
+                // Логика для распределения точек по кольцам
+                int ringCount = (count % 2 == 1) ? (count - 1) : count;
+                float radius = Mathf.Min(sizeA, sizeB) * 0.35f;
+                float rotation = Mathf.PI / 4f;
+
+                if (count % 2 == 1)
+                    res.Add(lc);
+
+                for (int k = 0; k < ringCount; k++)
+                {
+                    float angle = (2f * Mathf.PI * k) / ringCount + rotation;
+                    Vector3 localPos = lc + axisA * Mathf.Cos(angle) * radius + axisB * Mathf.Sin(angle) * radius;
+                    res.Add(localPos);
+                }
+                return res;
+            }
+        }
+
 
 
         /// <summary>
