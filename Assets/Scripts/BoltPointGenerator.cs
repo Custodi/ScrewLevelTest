@@ -78,18 +78,12 @@ public class BoltPointGenerator : MonoBehaviour
     private List<MeshInfo> meshes = new List<MeshInfo>();
     private Transform pointsParent;
 
-    // --- поле для вывода JSON (отобразится в инспекторе, можно скопировать) ---
-    [Header("Output")]
-    [TextArea(5, 20)]
-    public string GraphJson;
-
     [Header("Output")]
     [TextArea(5, 20)]
     public string PointDataJson;
 
     public static List<Ray> _debugRays = new List<Ray>();
     private const int MAX_DEBUG_RAYS = 50; // Максимальное количество сохраняемых лучей
-
     [ContextMenu("Generate")]
     public void Generate()
     {
@@ -99,15 +93,27 @@ public class BoltPointGenerator : MonoBehaviour
             return;
         }
 
-        CollectMeshes();
+        // --- 1) Удаляем все ранее созданные BoltPoint'ы (даже если они были прикреплены к мешам) ---
+        // Ищем компоненты BoltPointGizmo под Root и удаляем их GameObject'ы.
+        var oldGizmos = Root.GetComponentsInChildren<BoltPointGizmo>(true);
+        for (int i = oldGizmos.Length - 1; i >= 0; i--)
+        {
+#if UNITY_EDITOR
+            UnityEditor.Undo.DestroyObjectImmediate(oldGizmos[i].gameObject);
+#else
+        DestroyImmediate(oldGizmos[i].gameObject);
+#endif
+        }
 
+        // Сбор мешей
+        CollectMeshes();
         if (meshes.Count == 0)
         {
             Debug.LogWarning("[BoltPointGenerator] Меши не найдены под Root.");
             return;
         }
 
-        // Создаём/очищаем parent для точек
+        // --- 2) Создаём/очищаем pointsParent (единая точка хранения всех сгенерированных точек) ---
         pointsParent = transform.Find(pointsParentName);
         if (pointsParent == null)
         {
@@ -121,7 +127,7 @@ public class BoltPointGenerator : MonoBehaviour
 #if UNITY_EDITOR
             UnityEditor.Undo.DestroyObjectImmediate(pointsParent.GetChild(i).gameObject);
 #else
-            DestroyImmediate(pointsParent.GetChild(i).gameObject);
+        DestroyImmediate(pointsParent.GetChild(i).gameObject);
 #endif
         }
 
@@ -152,8 +158,9 @@ public class BoltPointGenerator : MonoBehaviour
             {
                 string pointId = $"BoltPoint_{created}";
 
+                // ВАЖНО: теперь все точки создаются как дети pointsParent, чтобы их было легко удалить в следующем запуске
                 GameObject go = new GameObject(pointId);
-                go.transform.SetParent(mi.Game.transform, false);
+                go.transform.SetParent(pointsParent, false);
                 go.transform.position = bp.position;
                 go.transform.rotation = Quaternion.LookRotation(bp.normal);
 
@@ -163,13 +170,13 @@ public class BoltPointGenerator : MonoBehaviour
                 giz.Normal = bp.normal;
                 giz.ShowPointGismos = ShowPointGismos;
 
-                // формируем PointData
+                // формируем PointData (без ссылки на GameObject — пригодно для экспорта)
                 var pd = new PointData
                 {
                     id = pointId,
                     depth = mi.Depth,
                     parentMeshId = mi.Game.name,
-                    blockedByMeshId = bp.blockedBy // поле мы добавим в BoltPoint
+                    blockedByMeshId = string.IsNullOrEmpty(bp.blockedBy) ? "" : bp.blockedBy
                 };
                 PointsData.Add(pd);
 
@@ -177,12 +184,12 @@ public class BoltPointGenerator : MonoBehaviour
             }
         }
 
-        BuildGraphJson();
-
+        // генерируем JSON
         PointDataJson = GeneratePointsJSON();
 
-        Debug.Log($"[BoltPointGenerator] Создано {created} точек для {meshes.Count} мешей.");
+        Debug.Log($"[BoltPointGenerator] Создано {created} точек для {meshes.Count} мешей. Старые точки удалены перед генерацией.");
     }
+
 
     private void CollectMeshes()
     {
@@ -250,81 +257,6 @@ public class BoltPointGenerator : MonoBehaviour
                 mi.TempAddedCollider = true;
             }
         }
-    }
-
-    private void BuildGraphJson()
-    {
-        var graph = new GraphData();
-
-        // слои по Depth -> Layer
-        var layersDict = new Dictionary<int, Layer>();
-        var nodeIdMap = new Dictionary<BoltPoint, string>();
-        int globalId = 0;
-
-        // собираем ноды и даём им id
-        foreach (var mi in meshes)
-        {
-            if (!layersDict.TryGetValue(mi.Depth, out var layer))
-            {
-                layer = new Layer { id = mi.Depth };
-                layersDict[mi.Depth] = layer;
-            }
-
-            foreach (var bp in mi.BoltPoints)
-            {
-                string nid = globalId.ToString();
-                nodeIdMap[bp] = nid;
-                layer.nodes.Add(new Node { id = nid, typeId = 1 });
-                globalId++;
-            }
-        }
-
-        foreach (var kv in layersDict.OrderBy(kv => kv.Key))
-            graph.layers.Add(kv.Value);
-
-        // связи: каждая точка со следующего слоя соединяется с ближайшей
-        var orderedDepths = layersDict.Keys.OrderBy(d => d).ToList();
-        for (int i = 0; i < orderedDepths.Count - 1; i++)
-        {
-            int d1 = orderedDepths[i];
-            int d2 = orderedDepths[i + 1];
-
-            var layer1Points = new List<BoltPoint>();
-            var layer2Points = new List<BoltPoint>();
-            foreach (var mi in meshes)
-            {
-                if (mi.Depth == d1) layer1Points.AddRange(mi.BoltPoints);
-                else if (mi.Depth == d2) layer2Points.AddRange(mi.BoltPoints);
-            }
-
-            foreach (var p1 in layer1Points)
-            {
-                BoltPoint nearest = null;
-                float bestDist = float.MaxValue;
-                foreach (var p2 in layer2Points)
-                {
-                    float dist = Vector3.Distance(p1.position, p2.position);
-                    if (dist < bestDist)
-                    {
-                        bestDist = dist;
-                        nearest = p2;
-                    }
-                }
-                if (nearest != null)
-                {
-                    graph.connections.Add(new Connection { from = nodeIdMap[p1], to = nodeIdMap[nearest] });
-                }
-            }
-        }
-
-        // сохраняем JSON в поле
-        var graphString = JsonUtility.ToJson(graph, true);
-
-        GraphJson = graphString;
-
-#if UNITY_EDITOR
-        Debug.Log("[BoltPointGenerator] Graph JSON:\n" + graphString);
-#endif
     }
 
     public string GeneratePointsJSON()
@@ -412,6 +344,7 @@ private int triCount;
         /// </summary>
 
         // В классе MeshInfo (или в самом методе) заменим старую логику, связную с глубиной:
+        // Заменяет старую реализацию внутри MeshInfo
         public bool GenerateBoltPointsByBounds(BoltPointGenerator parent, BoltPointGenerator.DistributionMode mode)
         {
             BoltPoints.Clear();
@@ -435,8 +368,7 @@ private int triCount;
             var faceOrder = faces.Select((f, i) => (i, f)).OrderByDescending(x => x.f.area).Select(x => x.i).ToArray();
             int facesCount = faces.Count;
 
-            int blockedPoints = 0; // Считаем количество точек, которые не заблокированы другим объектом
-
+            // Пытаемся два раза — если первая попытка дала плохое размещение (коллизии/блокировки), перегенерируем
             for (int attempt = 0; attempt < 2; attempt++)
             {
                 int needed = Mathf.Max(0, TargetSampleCount);
@@ -466,12 +398,9 @@ private int triCount;
                         int current = placedPerFace[fi];
                         int propose = current + 1;
 
-                        var localCandidates = GenerateCandidatesForFace(f, propose, mode);
+                        var localCandidates = GenerateCandidatesForFace(f, propose, mode, localSize);
                         if (localCandidates == null || localCandidates.Count < propose)
-                        {
-                            failed = true;
-                            break;
-                        }
+                            continue; // пропускаем эту грань — попробуем другую
 
                         var worldCandidates = new List<Vector3>(propose);
                         var worldNormals = new List<Vector3>(propose);
@@ -485,17 +414,47 @@ private int triCount;
                             worldCandidates.Add(w);
                             worldNormals.Add(worldNormal);
 
-                            // Здесь добавляется проверка на блокировку
                             TryAddPoint(w, worldNormal, parent, out var blockedByCandidate);
                             blockedByList.Add(blockedByCandidate);
+                        }
 
-                            // Если точка не блокируется, увеличиваем счётчик
-                            if (string.IsNullOrEmpty(blockedByCandidate))
+                        // Проверка на минимальное расстояние до уже принятых позиций (чтобы избежать дубликатов)
+                        List<Vector3> existingPositions = new List<Vector3>();
+                        for (int j = 0; j < facesCount; j++)
+                        {
+                            if (j == fi) continue;
+                            existingPositions.AddRange(facePositions[j]);
+                        }
+
+                        // minDist — доля от наименьшего размера bounds (адаптируйте если нужно)
+                        float minDim = Mathf.Min(Mathf.Max(localSize.x, 1e-4f), Mathf.Max(localSize.y, 1e-4f));
+                        minDim = Mathf.Min(minDim, Mathf.Max(localSize.z, 1e-4f));
+                        float minDist = Mathf.Max(0.001f, minDim * 0.03f); // 3% от минимального измерения, минимум 1mm (в юнитах)
+
+                        bool tooClose = false;
+                        if (existingPositions.Count > 0)
+                        {
+                            foreach (var wc in worldCandidates)
                             {
-                                blockedPoints++;
+                                foreach (var ex in existingPositions)
+                                {
+                                    if (Vector3.Distance(wc, ex) < minDist)
+                                    {
+                                        tooClose = true;
+                                        break;
+                                    }
+                                }
+                                if (tooClose) break;
                             }
                         }
 
+                        if (tooClose)
+                        {
+                            // не принимаем эту конфигурацию — попробуем другую грань
+                            continue;
+                        }
+
+                        // принимаем новую конфигурацию для этой грани (замещаем старые позиции)
                         placedPerFace[fi] = propose;
                         facePositions[fi].Clear();
                         faceNormals[fi].Clear();
@@ -510,20 +469,19 @@ private int triCount;
 
                         needed--;
                         placedThisCycle = true;
-                        if (needed <= 0 || blockedPoints >= 20) break; // TODO
-                    }
-
-                    if (failed) break;
+                        if (needed <= 0) break;
+                    } // foreach face
 
                     if (!placedThisCycle)
                     {
                         failed = true;
                         break;
                     }
-                }
+                } // while needed
 
                 if (!failed)
                 {
+                    // Собираем финальные BoltPoints
                     BoltPoints.Clear();
                     for (int fi = 0; fi < facesCount; fi++)
                     {
@@ -542,33 +500,28 @@ private int triCount;
                             });
                         }
                     }
+
                     return BoltPoints.Count > 0;
                 }
                 else
                 {
-                    Debug.LogWarning($"[BoltPointGenerator] Попытка {attempt + 1}: генерация точек для '{Game.name}' сброшена, пробуем заново...");
+                    Debug.LogWarning($"[BoltPointGenerator] Попытка {attempt + 1}: генерация точек для '{Game.name}' неудачна — пробуем заново...");
+                    // продолжим на следующую попытку (внешний цикл)
                 }
-            }
+            } // attempts
 
-            Debug.LogError($"[BoltPointGenerator] Не удалось разместить точки на меш '{Game.name}' даже после полной перегенерации.");
+            Debug.LogError($"[BoltPointGenerator] Не удалось разместить точки на меш '{Game.name}' даже после перегенерации.");
             return false;
         }
 
         // Новая функция для генерации кандидатов на основе данных о гранях.
-        private List<Vector3> GenerateCandidatesForFace(FaceInfo face, int count, BoltPointGenerator.DistributionMode mode)
+        private List<Vector3> GenerateCandidatesForFace(FaceInfo face, int count, BoltPointGenerator.DistributionMode mode, Vector3 localSize)
         {
             var res = new List<Vector3>();
             Vector3 lc = face.localCenter;
             Vector3 ln = face.localNormal;
 
-            // Получаем размер грани
-            Vector3 localSize = new Vector3(
-                Vector3.Dot(face.localCenter, Vector3.right),
-                Vector3.Dot(face.localCenter, Vector3.up),
-                Vector3.Dot(face.localCenter, Vector3.forward)
-            );
-
-            // Направления для осей
+            // базис грани в локальных координатах
             Vector3 axisA = Vector3.Cross(ln, Vector3.up);
             if (axisA.sqrMagnitude < 1e-4f) axisA = Vector3.Cross(ln, Vector3.right);
             axisA.Normalize();
@@ -577,14 +530,16 @@ private int triCount;
             float sizeA = Mathf.Abs(Vector3.Dot(localSize, axisA));
             float sizeB = Mathf.Abs(Vector3.Dot(localSize, axisB));
 
-            // Логика для выбора типа распределения точек
+            // запас на случай нулевых размеров
+            sizeA = Mathf.Max(sizeA, 0.0001f);
+            sizeB = Mathf.Max(sizeB, 0.0001f);
+
             bool linearAuto = sizeA > sizeB * 1.5f || sizeB > sizeA * 1.5f;
             bool useLinear = (mode == BoltPointGenerator.DistributionMode.Linear) ||
                              (mode == BoltPointGenerator.DistributionMode.Auto && linearAuto);
 
             if (count <= 0) return res;
 
-            // Логика для линейного распределения точек
             if (useLinear)
             {
                 if (count == 1)
@@ -612,14 +567,16 @@ private int triCount;
                     return res;
                 }
 
-                // Логика для распределения точек по кольцам
+                // Для радиальной расстановки: если count нечётно — даём 1 центр + (count-1) на кольце,
+                // если чётно — все на кольце. Это даёт требуемую симметрию (2 => противоположные точки)
                 int ringCount = (count % 2 == 1) ? (count - 1) : count;
                 float radius = Mathf.Min(sizeA, sizeB) * 0.35f;
                 float rotation = Mathf.PI / 4f;
 
                 if (count % 2 == 1)
-                    res.Add(lc);
+                    res.Add(lc); // центр
 
+                // Генерируем ringCount точек равномерно по углу
                 for (int k = 0; k < ringCount; k++)
                 {
                     float angle = (2f * Mathf.PI * k) / ringCount + rotation;
@@ -629,7 +586,6 @@ private int triCount;
                 return res;
             }
         }
-
 
 
         /// <summary>
